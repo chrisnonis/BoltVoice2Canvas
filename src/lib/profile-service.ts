@@ -61,22 +61,45 @@ export class ProfileService {
 
   async uploadAvatar(userId: string, file: File): Promise<string> {
     try {
-      // Create a unique filename
+      // Create a unique filename with user ID
       const fileExt = file.name.split('.').pop();
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const filePath = fileName; // Simplified path without subfolder
+
+      console.log('Uploading avatar:', { fileName, filePath, fileSize: file.size });
+
+      // First, ensure the avatars bucket exists and is public
+      const { data: buckets } = await this.supabase.storage.listBuckets();
+      const avatarBucket = buckets?.find(bucket => bucket.name === 'avatars');
+      
+      if (!avatarBucket) {
+        console.log('Creating avatars bucket...');
+        const { error: bucketError } = await this.supabase.storage.createBucket('avatars', {
+          public: true,
+          allowedMimeTypes: ['image/*'],
+          fileSizeLimit: 5242880 // 5MB
+        });
+        
+        if (bucketError) {
+          console.error('Error creating bucket:', bucketError);
+          throw new Error(`Failed to create storage bucket: ${bucketError.message}`);
+        }
+      }
 
       // Upload file to Supabase Storage
       const { data: uploadData, error: uploadError } = await this.supabase.storage
         .from('avatars')
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: true // Allow overwriting existing files
         });
 
       if (uploadError) {
+        console.error('Upload error:', uploadError);
         throw new Error(`Upload failed: ${uploadError.message}`);
       }
+
+      console.log('Upload successful:', uploadData);
 
       // Get public URL
       const { data: urlData } = this.supabase.storage
@@ -87,6 +110,7 @@ export class ProfileService {
         throw new Error('Failed to get public URL for uploaded image');
       }
 
+      console.log('Public URL generated:', urlData.publicUrl);
       return urlData.publicUrl;
     } catch (error) {
       console.error('Error uploading avatar:', error);
