@@ -14,7 +14,7 @@ Transform your spoken words into beautiful digital art with the power of AI.
 
 ## 🚀 Live Demo
 
-Visit the live application: [Voice2Canvas on Netlify](https://nimble-elf-a4ab1b.netlify.app) https://www.voice2canvas.co.uk/
+Visit the live application: [Voice2Canvas on Netlify](https://nimble-elf-a4ab1b.netlify.app)     https://www.voice2canvas.co.uk/
 
 ## 🛠️ Technology Stack
 
