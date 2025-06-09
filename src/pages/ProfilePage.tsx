@@ -1,22 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useSupabase } from '../lib/supabase-provider';
+import { useProfileService, UserProfile } from '../lib/profile-service';
 import { User, Settings, LogOut, Grid, Clock, Heart, Award, Upload, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { Navigate } from 'react-router-dom';
 
-// Mock user data - in a real app, this would come from your database
-const mockUser = {
-  id: 'user-123',
-  name: 'Jamie Smith',
-  email: 'jamie.smith@example.com',
-  avatar: 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg',
-  createdAt: '2025-01-15T10:30:00Z',
-  bio: 'Digital artist and nature lover. Creating landscapes and abstract art through the power of voice.',
-  artworksCount: 24,
-  likedCount: 56,
-  awardsCount: 3,
-};
-
-// Mock statistics
+// Mock statistics - in a real app, these would come from your database
 const mockStats = [
   { label: 'Artworks', value: 24, icon: <Grid className="h-5 w-5" /> },
   { label: 'Likes Received', value: 128, icon: <Heart className="h-5 w-5" /> },
@@ -27,22 +16,100 @@ const mockStats = [
 type TabType = 'profile' | 'account' | 'preferences';
 
 const ProfilePage = () => {
-  const { signOut } = useSupabase();
+  const { user, signOut, loading } = useSupabase();
+  const profileService = useProfileService();
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [isEditing, setIsEditing] = useState(false);
-  const [userData, setUserData] = useState(mockUser);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    full_name: '',
+    username: '',
+    bio: '',
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Show loading while checking authentication
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to sign in if not authenticated
+  if (!user) {
+    return <Navigate to="/signin" replace />;
+  }
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user) return;
+
+      try {
+        setIsLoadingProfile(true);
+        setError(null);
+        
+        let userProfile = await profileService.getProfile(user.id);
+        
+        // If profile doesn't exist, create one
+        if (!userProfile) {
+          console.log('Creating new profile for user:', user.id);
+          userProfile = await profileService.createProfile(user.id, user.email || '', {
+            full_name: user.user_metadata?.full_name || '',
+            username: user.email?.split('@')[0] || '',
+          });
+        }
+        
+        setProfile(userProfile);
+        setFormData({
+          full_name: userProfile.full_name || '',
+          username: userProfile.username || '',
+          bio: userProfile.bio || '',
+        });
+      } catch (err: any) {
+        console.error('Error fetching profile:', err);
+        setError(err.message || 'Failed to load profile');
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    fetchProfile();
+  }, [user]);
 
   const handleSignOut = async () => {
     await signOut();
-    // Redirect would happen automatically through auth state change
   };
 
-  const handleUpdateProfile = () => {
-    setIsEditing(false);
-    // In a real app, you would save the profile data to the backend here
-    console.log('Profile updated:', userData);
+  const handleUpdateProfile = async () => {
+    if (!user || !profile) return;
+
+    try {
+      setIsSaving(true);
+      setError(null);
+
+      const updatedProfile = await profileService.updateProfile(user.id, {
+        full_name: formData.full_name,
+        username: formData.username,
+        bio: formData.bio,
+      });
+
+      setProfile(updatedProfile);
+      setIsEditing(false);
+    } catch (err: any) {
+      console.error('Error updating profile:', err);
+      setError(err.message || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAvatarClick = () => {
@@ -53,48 +120,43 @@ const ProfilePage = () => {
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !user || !profile) return;
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+      setError('Please select an image file');
       return;
     }
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
+      setError('File size must be less than 5MB');
       return;
     }
 
     setIsUploadingAvatar(true);
+    setError(null);
 
     try {
-      // Create a preview URL for immediate display
-      const previewUrl = URL.createObjectURL(file);
+      // Upload the file and get the URL
+      const avatarUrl = await profileService.uploadAvatar(user.id, file);
       
-      // Update the avatar immediately for better UX
-      setUserData(prev => ({ ...prev, avatar: previewUrl }));
+      // Update the profile with the new avatar URL
+      const updatedProfile = await profileService.updateProfile(user.id, {
+        avatar_url: avatarUrl
+      });
 
-      // In a real app, you would upload to your storage service here
-      // For now, we'll simulate an upload delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Simulate successful upload with a placeholder service
-      // In production, you'd upload to Supabase Storage or similar
-      const uploadedUrl = `https://images.pexels.com/photos/${Math.floor(Math.random() * 1000000)}/pexels-photo-${Math.floor(Math.random() * 1000000)}.jpeg`;
-      
-      setUserData(prev => ({ ...prev, avatar: uploadedUrl }));
-      
-      console.log('Avatar uploaded successfully');
-    } catch (error) {
-      console.error('Error uploading avatar:', error);
-      alert('Failed to upload avatar. Please try again.');
-      // Revert to original avatar on error
-      setUserData(prev => ({ ...prev, avatar: mockUser.avatar }));
+      setProfile(updatedProfile);
+    } catch (err: any) {
+      console.error('Error uploading avatar:', err);
+      setError(err.message || 'Failed to upload avatar');
     } finally {
       setIsUploadingAvatar(false);
     }
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const tabs = [
@@ -111,6 +173,40 @@ const ProfilePage = () => {
     });
   };
 
+  const getAvatarUrl = () => {
+    if (profile?.avatar_url) {
+      return profile.avatar_url;
+    }
+    // Default avatar based on user's initials
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.full_name || user?.email || 'User')}&background=7c3aed&color=fff&size=200`;
+  };
+
+  if (isLoadingProfile) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
+            <p className="text-gray-600 dark:text-gray-400">Loading your profile...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Failed to load profile</p>
+            {error && <p className="text-error-600 dark:text-error-400">{error}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="mb-8">
@@ -119,6 +215,12 @@ const ProfilePage = () => {
           Manage your account and view your creations
         </p>
       </div>
+
+      {error && (
+        <div className="mb-6 rounded-lg bg-error-50 p-4 text-error-700 dark:bg-error-900/30 dark:text-error-400">
+          <p>{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         {/* Sidebar */}
@@ -135,8 +237,8 @@ const ProfilePage = () => {
                   onClick={handleAvatarClick}
                 >
                   <img
-                    src={userData.avatar}
-                    alt={userData.name}
+                    src={getAvatarUrl()}
+                    alt={profile.full_name || 'Profile'}
                     className="h-full w-full object-cover"
                   />
                   {isUploadingAvatar && (
@@ -171,16 +273,16 @@ const ProfilePage = () => {
               </div>
               
               <h2 className="mb-1 text-xl font-semibold text-gray-900 dark:text-white">
-                {userData.name}
+                {profile.full_name || 'Anonymous User'}
               </h2>
               <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-                {userData.email}
+                {user.email}
               </p>
               <p className="mb-4 text-center text-gray-600 dark:text-gray-300">
-                {userData.bio}
+                {profile.bio || 'No bio yet'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Member since {formatDate(userData.createdAt)}
+                Member since {formatDate(profile.created_at)}
               </p>
             </div>
 
@@ -251,16 +353,25 @@ const ProfilePage = () => {
                   ) : (
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => setIsEditing(false)}
-                        className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                        onClick={() => {
+                          setIsEditing(false);
+                          setFormData({
+                            full_name: profile.full_name || '',
+                            username: profile.username || '',
+                            bio: profile.bio || '',
+                          });
+                        }}
+                        disabled={isSaving}
+                        className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleUpdateProfile}
-                        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+                        disabled={isSaving}
+                        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-primary-500 dark:hover:bg-primary-600"
                       >
-                        Save Changes
+                        {isSaving ? 'Saving...' : 'Save Changes'}
                       </button>
                     </div>
                   )}
@@ -269,37 +380,47 @@ const ProfilePage = () => {
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
-                      <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                         Full Name
                       </label>
                       {isEditing ? (
                         <input
                           type="text"
-                          id="name"
-                          value={userData.name}
-                          onChange={(e) => setUserData({ ...userData, name: e.target.value })}
+                          id="full_name"
+                          value={formData.full_name}
+                          onChange={(e) => handleInputChange('full_name', e.target.value)}
                           className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                         />
                       ) : (
-                        <p className="mt-1 text-gray-900 dark:text-white">{userData.name}</p>
+                        <p className="mt-1 text-gray-900 dark:text-white">{profile.full_name || 'Not set'}</p>
                       )}
                     </div>
                     <div>
-                      <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Email Address
+                      <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Username
                       </label>
                       {isEditing ? (
                         <input
-                          type="email"
-                          id="email"
-                          value={userData.email}
-                          onChange={(e) => setUserData({ ...userData, email: e.target.value })}
+                          type="text"
+                          id="username"
+                          value={formData.username}
+                          onChange={(e) => handleInputChange('username', e.target.value)}
                           className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                         />
                       ) : (
-                        <p className="mt-1 text-gray-900 dark:text-white">{userData.email}</p>
+                        <p className="mt-1 text-gray-900 dark:text-white">{profile.username || 'Not set'}</p>
                       )}
                     </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Email Address
+                    </label>
+                    <p className="mt-1 text-gray-900 dark:text-white">{user.email}</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      Email cannot be changed here. Contact support if needed.
+                    </p>
                   </div>
 
                   <div>
@@ -310,13 +431,13 @@ const ProfilePage = () => {
                       <textarea
                         id="bio"
                         rows={3}
-                        value={userData.bio}
-                        onChange={(e) => setUserData({ ...userData, bio: e.target.value })}
+                        value={formData.bio}
+                        onChange={(e) => handleInputChange('bio', e.target.value)}
                         className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                         placeholder="Tell us about yourself and your artistic interests..."
                       />
                     ) : (
-                      <p className="mt-1 text-gray-900 dark:text-white">{userData.bio}</p>
+                      <p className="mt-1 text-gray-900 dark:text-white">{profile.bio || 'No bio yet'}</p>
                     )}
                   </div>
 
@@ -328,8 +449,8 @@ const ProfilePage = () => {
                       <div className="flex items-center space-x-4">
                         <div className="relative">
                           <img
-                            src={userData.avatar}
-                            alt={userData.name}
+                            src={getAvatarUrl()}
+                            alt={profile.full_name || 'Profile'}
                             className="h-16 w-16 rounded-full object-cover"
                           />
                           {isUploadingAvatar && (
