@@ -2,7 +2,7 @@
 
 Transform your spoken words into beautiful digital art with the power of AI.
 
-🏆 **Bolt Hackathon 2024 Entry** - [Visit Hackathon](https://hackathon.dev/)
+🏆 **Bolt Hackathon 2025 Entry** - [Visit Hackathon](https://hackathon.dev/)
 
 ## 🌟 Features
 
