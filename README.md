@@ -123,7 +123,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🏆 Hackathon Information
 
-Voice2Canvas was created for the [Bolt Hackathon 2024](https://hackathon.dev/). While built for the competition, it serves as a real platform for accessible digital art creation.
+Voice2Canvas was created for the [Bolt Hackathon 2025](https://hackathon.dev/). While built for the competition, it serves as a real platform for accessible digital art creation.
 
 ## 📞 Support
 
